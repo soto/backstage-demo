@@ -4,12 +4,9 @@ import Router from 'express-promise-router';
 import { LoggerService } from '@backstage/backend-plugin-api';
 import { Config } from '@backstage/config';
 import { CatalogApi } from '@backstage/catalog-client';
-import {
-  getGithubFileFetchUrl,
-  ScmIntegrations,
-} from '@backstage/integration';
+import { ScmIntegrations } from '@backstage/integration';
 import { parseEntityRef } from '@backstage/catalog-model';
-import { parseLivemd, extractTitle } from './LivebookParser';
+import { parseLivemd } from './LivebookParser';
 import fetch from 'node-fetch';
 
 export interface RouterOptions {
@@ -18,20 +15,35 @@ export interface RouterOptions {
   catalogApi: CatalogApi;
 }
 
-interface ResolvedSource {
-  type: 'github' | 'url' | 'dir';
-  baseUrl: string;
-  token?: string;
-}
-
 export async function createRouter(
   options: RouterOptions,
 ): Promise<express.Router> {
   const { logger, config, catalogApi } = options;
   const integrations = ScmIntegrations.fromConfig(config);
 
+  // Read Livebook instance config
+  const livebookBaseUrl =
+    config.getOptionalString('livebook.baseUrl') || '';
+  const livebookIframeEnabled =
+    config.getOptionalBoolean('livebook.iframe.enabled') ?? false;
+  const livebookIframeUrl =
+    config.getOptionalString('livebook.iframe.url') || livebookBaseUrl;
+
   const router = Router();
   router.use(express.json());
+
+  // GET /config
+  // Returns Livebook instance configuration to the frontend
+  router.get('/config', async (_req, res) => {
+    res.json({
+      baseUrl: livebookBaseUrl,
+      iframe: {
+        enabled: livebookIframeEnabled,
+        url: livebookIframeUrl,
+      },
+      available: !!livebookBaseUrl,
+    });
+  });
 
   // GET /files?entityRef=component:default/my-service
   // Returns list of .livemd files for the given entity
@@ -71,7 +83,21 @@ export async function createRouter(
         logger,
       );
 
-      res.json(files);
+      // Enrich each file with a Livebook import URL if an instance is configured
+      const enrichedFiles = files.map(file => ({
+        ...file,
+        importUrl: livebookBaseUrl
+          ? buildImportUrl(
+              livebookBaseUrl,
+              file,
+              livebookRef,
+              entity.metadata.annotations?.['backstage.io/source-location'] ||
+                '',
+            )
+          : undefined,
+      }));
+
+      res.json(enrichedFiles);
     } catch (err: any) {
       logger.error(`Error fetching livebook files for ${entityRef}`, err);
       res.status(500).json({ error: err.message });
@@ -79,7 +105,7 @@ export async function createRouter(
   });
 
   // GET /content?entityRef=component:default/my-service&path=notebooks/guide.livemd
-  // Returns parsed HTML content for a specific .livemd file
+  // Returns parsed HTML content for a specific .livemd file (static preview)
   router.get('/content', async (req, res) => {
     const entityRef = req.query.entityRef as string;
     const filePath = req.query.path as string;
@@ -123,11 +149,32 @@ export async function createRouter(
 
       const parsed = parseLivemd(rawContent);
 
+      // Build the import URL for the "Open in Livebook" button
+      const importUrl = livebookBaseUrl
+        ? buildImportUrl(
+            livebookBaseUrl,
+            { path: filePath, name: filePath.split('/').pop() || filePath, title: parsed.title },
+            livebookRef,
+            entity.metadata.annotations?.['backstage.io/source-location'] || '',
+          )
+        : undefined;
+
+      // Build the raw URL for livebook.dev/run badge
+      const rawUrl = resolveRawUrl(
+        livebookRef,
+        filePath,
+        entity.metadata.annotations?.['backstage.io/source-location'] || '',
+      );
+
       res.json({
         path: filePath,
         title: parsed.title,
         contentHtml: parsed.html,
         rawMarkdown: parsed.rawMarkdown,
+        importUrl,
+        runBadgeUrl: rawUrl
+          ? `https://livebook.dev/run?url=${encodeURIComponent(rawUrl)}`
+          : undefined,
       });
     } catch (err: any) {
       logger.error(
@@ -135,6 +182,32 @@ export async function createRouter(
         err,
       );
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /instance/status
+  // Proxies a health check to the configured Livebook instance
+  router.get('/instance/status', async (_req, res) => {
+    if (!livebookBaseUrl) {
+      res.json({ connected: false, reason: 'No Livebook instance configured' });
+      return;
+    }
+
+    try {
+      const resp = await fetch(`${livebookBaseUrl}/health`, {
+        timeout: 5000,
+      } as any);
+      res.json({
+        connected: resp.ok,
+        status: resp.status,
+        url: livebookBaseUrl,
+      });
+    } catch (err: any) {
+      res.json({
+        connected: false,
+        reason: err.message,
+        url: livebookBaseUrl,
+      });
     }
   });
 
@@ -146,6 +219,67 @@ export async function createRouter(
   const middleware = MiddlewareFactory.create({ logger, config });
   router.use(middleware.error());
   return router;
+}
+
+/**
+ * Build a Livebook import URL.
+ *
+ * Livebook's /home/import/url route accepts a `url` query parameter pointing
+ * to the raw .livemd file. The running Livebook instance will fetch it and
+ * open the notebook for interactive editing.
+ */
+function buildImportUrl(
+  livebookBaseUrl: string,
+  file: { path: string; name: string; title: string },
+  livebookRef: string,
+  sourceLocation: string,
+): string {
+  const rawUrl = resolveRawUrl(livebookRef, file.path, sourceLocation);
+  if (!rawUrl) {
+    // Fallback: just link to the Livebook home
+    return livebookBaseUrl;
+  }
+  return `${livebookBaseUrl}/home/import/url?url=${encodeURIComponent(rawUrl)}`;
+}
+
+/**
+ * Resolve the raw URL for a .livemd file so Livebook can fetch it.
+ */
+function resolveRawUrl(
+  livebookRef: string,
+  filePath: string,
+  sourceLocation: string,
+): string | undefined {
+  let baseUrl = sourceLocation;
+  if (baseUrl.startsWith('url:')) {
+    baseUrl = baseUrl.slice(4);
+  }
+
+  // GitHub source location -> raw.githubusercontent.com URL
+  const ghMatch = baseUrl.match(
+    /github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/?(.*)/,
+  );
+  if (ghMatch) {
+    const [, owner, repo, branch] = ghMatch;
+    return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
+  }
+
+  // Direct URL ref
+  if (livebookRef.startsWith('url:')) {
+    const livebookBaseUrlRef = livebookRef.slice(4);
+    return `${livebookBaseUrlRef.replace(/\/$/, '')}/${filePath}`;
+  }
+
+  // Try any GitHub-looking base URL
+  if (baseUrl) {
+    const anyGhMatch = baseUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
+    if (anyGhMatch) {
+      const [, owner, repo] = anyGhMatch;
+      return `https://raw.githubusercontent.com/${owner}/${repo}/main/${filePath}`;
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -180,7 +314,7 @@ async function discoverLivebookFiles(
     return files;
   }
 
-  // For dir: references, try to use GitHub API to list files
+  // For dir: references, use GitHub API to list files
   if (livebookRef.startsWith('dir:')) {
     const dir = livebookRef.slice(4);
     return discoverFromDirectory(dir, sourceLocation, integrations, logger);
@@ -201,8 +335,6 @@ async function discoverFromDirectory(
   integrations: ScmIntegrations,
   logger: LoggerService,
 ): Promise<Array<{ path: string; name: string; title: string }>> {
-  // Try to resolve the source location to a GitHub repo
-  // sourceLocation format: "url:https://github.com/org/repo/tree/main/"
   let baseUrl = sourceLocation;
   if (baseUrl.startsWith('url:')) {
     baseUrl = baseUrl.slice(4);
@@ -213,10 +345,8 @@ async function discoverFromDirectory(
     return [];
   }
 
-  // Construct the directory URL
   let dirUrl = baseUrl;
   if (dir !== '.' && dir !== './') {
-    // Remove trailing slash and append dir
     dirUrl = baseUrl.replace(/\/$/, '') + '/' + dir.replace(/^\.\//, '');
   }
 
@@ -228,7 +358,6 @@ async function discoverFromUrl(
   integrations: ScmIntegrations,
   logger: LoggerService,
 ): Promise<Array<{ path: string; name: string; title: string }>> {
-  // For GitHub URLs, use the GitHub API to list directory contents
   const ghMatch = url.match(
     /github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/?(.*)/,
   );
@@ -248,9 +377,7 @@ async function discoverFromUrl(
 
       const resp = await fetch(apiUrl, { headers });
       if (!resp.ok) {
-        logger.warn(
-          `GitHub API returned ${resp.status} for ${apiUrl}`,
-        );
+        logger.warn(`GitHub API returned ${resp.status} for ${apiUrl}`);
         return [];
       }
 
@@ -262,15 +389,14 @@ async function discoverFromUrl(
 
       const files = [];
       for (const file of livemdFiles) {
-        const filePath = file.path;
         files.push({
-          path: filePath,
+          path: file.path,
           name: file.name,
           title: file.name.replace(/\.livemd$/, ''),
         });
       }
 
-      // Also scan subdirectories (one level deep)
+      // Scan subdirectories one level deep
       const dirs = items.filter((item: any) => item.type === 'dir');
       for (const d of dirs) {
         const subUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${d.path}?ref=${branch}`;
@@ -297,12 +423,14 @@ async function discoverFromUrl(
 
       return files;
     } catch (err) {
-      logger.error(`Failed to discover livebook files from GitHub: ${url}`, err as Error);
+      logger.error(
+        `Failed to discover livebook files from GitHub: ${url}`,
+        err as Error,
+      );
       return [];
     }
   }
 
-  // Fallback: treat the URL as a base and try common paths
   logger.info(
     `Non-GitHub URL for livebook discovery, returning empty: ${url}`,
   );
@@ -316,13 +444,12 @@ async function fetchLivebookFile(
   integrations: ScmIntegrations,
   logger: LoggerService,
 ): Promise<string> {
-  // Determine the raw content URL
   let baseUrl = sourceLocation;
   if (baseUrl.startsWith('url:')) {
     baseUrl = baseUrl.slice(4);
   }
 
-  // For GitHub: convert to raw content URL
+  // GitHub source location -> raw content
   const ghMatch = baseUrl.match(
     /github\.com\/([^/]+)\/([^/]+)\/tree\/([^/]+)\/?(.*)/,
   );
@@ -330,7 +457,6 @@ async function fetchLivebookFile(
     const [, owner, repo, branch] = ghMatch;
     const ghIntegration = integrations.github.byUrl(baseUrl);
     const token = ghIntegration?.config.token;
-
     const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
     const headers: Record<string, string> = {};
     if (token) {
@@ -346,7 +472,7 @@ async function fetchLivebookFile(
     return resp.text();
   }
 
-  // For direct URL references in livebookRef
+  // Direct URL reference
   if (livebookRef.startsWith('url:')) {
     const livebookBaseUrl = livebookRef.slice(4);
     const fileUrl = `${livebookBaseUrl.replace(/\/$/, '')}/${filePath}`;
@@ -359,9 +485,8 @@ async function fetchLivebookFile(
     return resp.text();
   }
 
-  // Try to construct a URL from the source location and file path
+  // Fallback: try raw GitHub content from any GitHub-looking URL
   if (baseUrl) {
-    // Try raw GitHub content for any GitHub URL
     const anyGhMatch = baseUrl.match(/github\.com\/([^/]+)\/([^/]+)/);
     if (anyGhMatch) {
       const [, owner, repo] = anyGhMatch;

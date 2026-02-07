@@ -105,12 +105,27 @@ catalog:
     #     - allow: [User, Group]
 
 livebook:
-  # Annotation key used to mark entities with livebook files
-  # Supported annotation formats:
+  # URL of your running Livebook instance.
+  # The backend uses this to:
+  #   1. Build "Open in Livebook" import URLs (via /home/import/url?url=...)
+  #   2. Check Livebook instance health
+  #   3. Optionally embed Livebook in an iframe
+  # Leave commented out if no central Livebook instance is available —
+  # users can still use the "Run in Livebook" badge (livebook.dev/run)
+  # to open notebooks in their own local Livebook.
+  #
+  # baseUrl: ${LIVEBOOK_URL}     # e.g. https://livebook.mycompany.com
+  #
+  # Annotation formats for entities:
   #   livebook.dev/ref: "dir:./notebooks"           - scan a directory relative to source
   #   livebook.dev/ref: "path/to/file.livemd"       - explicit file paths (comma-separated)
   #   livebook.dev/ref: "url:https://github.com/..." - absolute URL to a directory
-  enabled: true
+  #
+  # Iframe embedding (requires Livebook started with LIVEBOOK_WITHIN_IFRAME=true
+  # and served over HTTPS):
+  # iframe:
+  #   enabled: true
+  #   url: ${LIVEBOOK_IFRAME_URL}  # defaults to baseUrl if not set
 
 kubernetes:
   # see https://backstage.io/docs/features/kubernetes/configuration for kubernetes configuration options

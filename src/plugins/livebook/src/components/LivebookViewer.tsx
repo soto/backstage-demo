@@ -1,9 +1,25 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useAsync } from 'react-use';
 import { useApi } from '@backstage/core-plugin-api';
-import { livebookApiRef } from '../api';
+import { livebookApiRef, LivebookInstanceConfig } from '../api';
 import { Progress, WarningPanel } from '@backstage/core-components';
-import { makeStyles, Theme, Typography, Chip, Box } from '@material-ui/core';
+import {
+  makeStyles,
+  Theme,
+  Typography,
+  Chip,
+  Box,
+  Button,
+  ButtonGroup,
+  Tooltip,
+  IconButton,
+} from '@material-ui/core';
+import OpenInNewIcon from '@material-ui/icons/OpenInNew';
+import VisibilityIcon from '@material-ui/icons/Visibility';
+import PlayArrowIcon from '@material-ui/icons/PlayArrow';
+import FiberManualRecordIcon from '@material-ui/icons/FiberManualRecord';
+
+type ViewMode = 'preview' | 'interactive';
 
 const useStyles = makeStyles((theme: Theme) => ({
   root: {
@@ -13,11 +29,48 @@ const useStyles = makeStyles((theme: Theme) => ({
     marginBottom: theme.spacing(2),
     display: 'flex',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: theme.spacing(1),
+  },
+  headerLeft: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: theme.spacing(1),
+  },
+  headerRight: {
+    display: 'flex',
+    alignItems: 'center',
     gap: theme.spacing(1),
   },
   badge: {
     backgroundColor: '#4e2a8e',
     color: '#fff',
+  },
+  instanceBadge: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+  },
+  connectedDot: {
+    color: '#4caf50',
+    fontSize: 12,
+  },
+  disconnectedDot: {
+    color: theme.palette.grey[400],
+    fontSize: 12,
+  },
+  iframe: {
+    width: '100%',
+    height: 'calc(100vh - 300px)',
+    minHeight: 600,
+    border: `1px solid ${theme.palette.divider}`,
+    borderRadius: theme.shape.borderRadius,
+  },
+  noInstance: {
+    textAlign: 'center',
+    padding: theme.spacing(4),
+    color: theme.palette.text.secondary,
   },
   content: {
     '& h1': {
@@ -138,8 +191,26 @@ interface LivebookViewerProps {
 export const LivebookViewer = ({ entityRef, filePath }: LivebookViewerProps) => {
   const classes = useStyles();
   const livebookApi = useApi(livebookApiRef);
+  const [viewMode, setViewMode] = useState<ViewMode>('preview');
 
-  const { value: content, loading, error } = useAsync(
+  // Fetch Livebook instance config
+  const { value: instanceConfig } = useAsync(
+    () => livebookApi.getConfig(),
+    [],
+  );
+
+  // Fetch Livebook instance status (only if configured)
+  const { value: instanceStatus } = useAsync(async () => {
+    if (!instanceConfig?.available) return undefined;
+    return livebookApi.getInstanceStatus();
+  }, [instanceConfig?.available]);
+
+  // Fetch the .livemd content (for static preview)
+  const {
+    value: content,
+    loading,
+    error,
+  } = useAsync(
     () => livebookApi.getContent(entityRef, filePath),
     [entityRef, filePath],
   );
@@ -147,24 +218,127 @@ export const LivebookViewer = ({ entityRef, filePath }: LivebookViewerProps) => 
   if (loading) return <Progress />;
   if (error) {
     return (
-      <WarningPanel
-        title="Failed to load livebook"
-        message={error.message}
-      />
+      <WarningPanel title="Failed to load livebook" message={error.message} />
     );
   }
   if (!content) return null;
 
+  const livebookAvailable = instanceConfig?.available ?? false;
+  const iframeEnabled = instanceConfig?.iframe?.enabled ?? false;
+  const isConnected = instanceStatus?.connected ?? false;
+
   return (
     <div className={classes.root}>
       <Box className={classes.header}>
-        <Typography variant="h5">{content.title}</Typography>
-        <Chip label="Livebook" size="small" className={classes.badge} />
+        <Box className={classes.headerLeft}>
+          <Typography variant="h5">{content.title}</Typography>
+          <Chip label="Livebook" size="small" className={classes.badge} />
+          {livebookAvailable && (
+            <Tooltip
+              title={
+                isConnected
+                  ? `Connected to ${instanceConfig!.baseUrl}`
+                  : 'Livebook instance not reachable'
+              }
+            >
+              <Box className={classes.instanceBadge}>
+                <FiberManualRecordIcon
+                  className={
+                    isConnected
+                      ? classes.connectedDot
+                      : classes.disconnectedDot
+                  }
+                />
+                <Typography variant="caption">
+                  {isConnected ? 'Live' : 'Offline'}
+                </Typography>
+              </Box>
+            </Tooltip>
+          )}
+        </Box>
+
+        <Box className={classes.headerRight}>
+          {/* Mode toggle: preview vs interactive (iframe) */}
+          {livebookAvailable && iframeEnabled && (
+            <ButtonGroup size="small" variant="outlined">
+              <Tooltip title="Static preview of the notebook">
+                <Button
+                  onClick={() => setViewMode('preview')}
+                  variant={viewMode === 'preview' ? 'contained' : 'outlined'}
+                  startIcon={<VisibilityIcon />}
+                >
+                  Preview
+                </Button>
+              </Tooltip>
+              <Tooltip title="Interactive Livebook session (iframe)">
+                <Button
+                  onClick={() => setViewMode('interactive')}
+                  variant={
+                    viewMode === 'interactive' ? 'contained' : 'outlined'
+                  }
+                  startIcon={<PlayArrowIcon />}
+                  disabled={!isConnected}
+                >
+                  Interactive
+                </Button>
+              </Tooltip>
+            </ButtonGroup>
+          )}
+
+          {/* "Open in Livebook" button — redirects to Livebook's import URL */}
+          {content.importUrl && (
+            <Tooltip title="Open this notebook in Livebook for interactive editing">
+              <Button
+                size="small"
+                variant="contained"
+                style={{ backgroundColor: '#4e2a8e', color: '#fff' }}
+                href={content.importUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                startIcon={<OpenInNewIcon />}
+              >
+                Open in Livebook
+              </Button>
+            </Tooltip>
+          )}
+
+          {/* "Run in Livebook" badge link (livebook.dev/run) */}
+          {!content.importUrl && content.runBadgeUrl && (
+            <Tooltip title="Open via livebook.dev — connects to your personal Livebook instance">
+              <Button
+                size="small"
+                variant="outlined"
+                href={content.runBadgeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                startIcon={<PlayArrowIcon />}
+              >
+                Run in Livebook
+              </Button>
+            </Tooltip>
+          )}
+        </Box>
       </Box>
-      <div
-        className={classes.content}
-        dangerouslySetInnerHTML={{ __html: content.contentHtml }}
-      />
+
+      {/* Interactive mode: embed Livebook in an iframe */}
+      {viewMode === 'interactive' &&
+      iframeEnabled &&
+      isConnected &&
+      content.importUrl ? (
+        <iframe
+          className={classes.iframe}
+          src={content.importUrl}
+          title={`Livebook: ${content.title}`}
+          allow="clipboard-read; clipboard-write"
+          sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+        />
+      ) : (
+        /* Preview mode: static HTML render of the .livemd */
+        <div
+          className={classes.content}
+          dangerouslySetInnerHTML={{ __html: content.contentHtml }}
+        />
+      )}
     </div>
   );
 };
