@@ -8,6 +8,8 @@ import { ScmIntegrations } from '@backstage/integration';
 import { parseEntityRef } from '@backstage/catalog-model';
 import { parseLivemd } from './LivebookParser';
 import fetch from 'node-fetch';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface RouterOptions {
   logger: LoggerService;
@@ -505,6 +507,26 @@ async function fetchLivebookFile(
         );
       }
       return resp.text();
+    }
+  }
+
+  // Last resort: try reading from the local filesystem
+  // This handles entities loaded via type:file (local catalog locations)
+  // The backend process cwd is typically packages/backend
+  const localPaths = [
+    path.resolve(process.cwd(), filePath),
+    path.resolve(process.cwd(), '..', '..', filePath),
+    path.resolve(process.cwd(), '..', filePath),
+  ];
+
+  for (const localPath of localPaths) {
+    try {
+      if (fs.existsSync(localPath)) {
+        logger.info(`Reading livebook from local path: ${localPath}`);
+        return fs.readFileSync(localPath, 'utf-8');
+      }
+    } catch {
+      // continue trying other paths
     }
   }
 

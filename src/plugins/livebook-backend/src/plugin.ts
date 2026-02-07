@@ -20,6 +20,17 @@ export const livebookPlugin = createBackendPlugin({
       async init({ httpRouter, logger, config, discovery, auth }) {
         const catalogApi = new CatalogClient({
           discoveryApi: discovery,
+          fetchApi: {
+            fetch: async (input: any, init?: any) => {
+              const { token } = await auth.getPluginRequestToken({
+                onBehalfOf: await auth.getOwnServiceCredentials(),
+                targetPluginId: 'catalog',
+              });
+              const headers = new Headers(init?.headers);
+              headers.set('Authorization', `Bearer ${token}`);
+              return fetch(input, { ...init, headers });
+            },
+          },
         });
 
         httpRouter.use(
