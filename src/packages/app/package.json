@@ -20,6 +20,7 @@
     "@backstage/core-app-api": "^1.14.2",
     "@backstage/core-components": "^0.14.10",
     "@backstage/core-plugin-api": "^1.9.3",
+    "@internal/plugin-livebook": "link:../../plugins/livebook",
     "@backstage/integration-react": "^1.1.30",
     "@backstage/plugin-api-docs": "^0.11.8",
     "@backstage/plugin-catalog": "^1.22.0",

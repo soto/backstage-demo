@@ -104,6 +104,14 @@ catalog:
     #   rules:
     #     - allow: [User, Group]
 
+livebook:
+  # Annotation key used to mark entities with livebook files
+  # Supported annotation formats:
+  #   livebook.dev/ref: "dir:./notebooks"           - scan a directory relative to source
+  #   livebook.dev/ref: "path/to/file.livemd"       - explicit file paths (comma-separated)
+  #   livebook.dev/ref: "url:https://github.com/..." - absolute URL to a directory
+  enabled: true
+
 kubernetes:
   # see https://backstage.io/docs/features/kubernetes/configuration for kubernetes configuration options
 

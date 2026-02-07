@@ -12,6 +12,8 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: example-website
+  annotations:
+    livebook.dev/ref: examples/livebooks/getting-started.livemd,examples/livebooks/data-pipeline.livemd
 spec:
   type: website
   lifecycle: experimental

@@ -1,0 +1,113 @@
+# Data Pipeline Exploration
+
+<!-- livebook:{"persist_outputs":true} -->
+
+## Overview
+
+This notebook demonstrates how to build a simple **data processing pipeline**
+using Elixir's `Flow` library. It's a companion to the example-website component
+and shows how streaming data from the gRPC API can be processed in parallel.
+
+## Setup
+
+```elixir
+Mix.install([
+  {:flow, "~> 1.2"},
+  {:jason, "~> 1.4"},
+  {:nimble_csv, "~> 1.2"}
+])
+```
+
+## Generating Sample Data
+
+Let's generate some sample records that simulate data coming from our service:
+
+```elixir
+records =
+  1..1000
+  |> Enum.map(fn i ->
+    %{
+      id: i,
+      timestamp: DateTime.utc_now() |> DateTime.add(-i, :second),
+      value: :rand.uniform(100),
+      category: Enum.random(["web", "api", "worker", "scheduler"])
+    }
+  end)
+
+IO.puts("Generated #{length(records)} records")
+```
+
+## Processing with Flow
+
+Use `Flow` to process records in parallel, grouping by category and computing
+aggregates:
+
+```elixir
+results =
+  records
+  |> Flow.from_enumerable()
+  |> Flow.partition(key: {:key, :category})
+  |> Flow.reduce(fn -> %{} end, fn record, acc ->
+    Map.update(acc, record.category, [record.value], &[record.value | &1])
+  end)
+  |> Flow.on_trigger(fn acc ->
+    summary =
+      Enum.map(acc, fn {category, values} ->
+        %{
+          category: category,
+          count: length(values),
+          avg: Enum.sum(values) / length(values),
+          max: Enum.max(values),
+          min: Enum.min(values)
+        }
+      end)
+
+    {summary, acc}
+  end)
+  |> Enum.flat_map(& &1)
+
+Enum.each(results, fn %{category: cat, count: c, avg: avg} ->
+  IO.puts("#{cat}: #{c} records, avg=#{Float.round(avg, 1)}")
+end)
+```
+
+## Visualizing Results
+
+With **VegaLite** (available in Livebook), you could chart these results:
+
+```elixir
+# In Livebook with VegaLite:
+# VegaLite.new(width: 400, height: 300)
+# |> VegaLite.data_from_values(results)
+# |> VegaLite.mark(:bar)
+# |> VegaLite.encode_field(:x, "category", type: :nominal)
+# |> VegaLite.encode_field(:y, "avg", type: :quantitative)
+
+IO.puts("Chart rendering requires Livebook with VegaLite support")
+```
+
+## Writing to CSV
+
+Export the aggregated results:
+
+```elixir
+alias NimbleCSV.RFC4180, as: CSV
+
+csv_data =
+  [["category", "count", "avg", "max", "min"]] ++
+    Enum.map(results, fn r ->
+      [r.category, r.count, Float.round(r.avg, 2), r.max, r.min]
+    end)
+
+csv_string = CSV.dump_to_iodata(csv_data) |> IO.iodata_to_binary()
+IO.puts(csv_string)
+```
+
+## Next Steps
+
+- Connect this pipeline to the **live gRPC stream** from the example-website
+- Add **Nx** for numerical processing of the data
+- Use **Explorer** DataFrames for more advanced analysis
+
+> **Note:** This is a demonstration notebook. In production, you would connect
+> to actual data sources and configure proper error handling.

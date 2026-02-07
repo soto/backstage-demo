@@ -1,0 +1,85 @@
+# Getting Started with the Example Website
+
+<!-- livebook:{"persist_outputs":true} -->
+
+## Introduction
+
+This Livebook walks through the **example-website** component, its architecture,
+and how to interact with its APIs from Elixir.
+
+The example-website provides a gRPC API (`example-grpc-api`) that you can
+call using the `GRPC` library in Elixir.
+
+## Setup
+
+```elixir
+Mix.install([
+  {:grpc, "~> 0.7"},
+  {:protobuf, "~> 0.12"},
+  {:jason, "~> 1.4"},
+  {:req, "~> 0.4"}
+])
+```
+
+## Defining the Proto Messages
+
+First, let's define the protobuf messages that match our gRPC API:
+
+```elixir
+defmodule ExampleMessage do
+  use Protobuf, protoc_gen_elixir_version: "0.12.0", syntax: :proto3
+
+  field :example, 1, type: :string
+end
+
+defmodule Exampler.Stub do
+  use GRPC.Stub, service: "Exampler"
+end
+```
+
+## Calling the Service
+
+Now we can connect to the gRPC service and make a request:
+
+```elixir
+# In a real scenario, you would connect to the actual service endpoint
+{:ok, channel} = GRPC.Stub.connect("localhost:50051")
+
+request = %ExampleMessage{example: "Hello from Livebook!"}
+
+case Exampler.Stub.example(channel, request) do
+  {:ok, reply} ->
+    IO.puts("Response: #{reply.example}")
+
+  {:error, reason} ->
+    IO.puts("Error: #{inspect(reason)}")
+end
+```
+
+## Health Check via HTTP
+
+You can also verify the service is running via its HTTP endpoint:
+
+```elixir
+case Req.get("http://localhost:3000/health") do
+  {:ok, %{status: 200, body: body}} ->
+    IO.puts("Service is healthy: #{inspect(body)}")
+
+  {:ok, %{status: status}} ->
+    IO.puts("Unexpected status: #{status}")
+
+  {:error, reason} ->
+    IO.puts("Could not reach service: #{inspect(reason)}")
+end
+```
+
+## Summary
+
+| Endpoint | Protocol | Port |
+|----------|----------|------|
+| gRPC API | HTTP/2 | 50051 |
+| Web UI | HTTP | 3000 |
+| Health | HTTP | 3000 |
+
+> **Tip:** Run this notebook in [Livebook](https://livebook.dev) connected to
+> a running instance of the example-website for interactive exploration.

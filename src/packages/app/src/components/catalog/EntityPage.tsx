@@ -58,6 +58,10 @@ import {
   EntityKubernetesContent,
   isKubernetesAvailable,
 } from '@backstage/plugin-kubernetes';
+import {
+  EntityLivebookContent,
+  isLivebookAvailable,
+} from '@internal/plugin-livebook';
 
 const techdocsContent = (
   <EntityTechdocsContent>
@@ -188,6 +192,14 @@ const serviceEntityPage = (
     <EntityLayout.Route path="/docs" title="Docs">
       {techdocsContent}
     </EntityLayout.Route>
+
+    <EntityLayout.Route
+      path="/livebook"
+      title="Livebooks"
+      if={isLivebookAvailable}
+    >
+      <EntityLivebookContent />
+    </EntityLayout.Route>
   </EntityLayout>
 );
 
@@ -223,6 +235,14 @@ const websiteEntityPage = (
     <EntityLayout.Route path="/docs" title="Docs">
       {techdocsContent}
     </EntityLayout.Route>
+
+    <EntityLayout.Route
+      path="/livebook"
+      title="Livebooks"
+      if={isLivebookAvailable}
+    >
+      <EntityLivebookContent />
+    </EntityLayout.Route>
   </EntityLayout>
 );
 
@@ -241,6 +261,14 @@ const defaultEntityPage = (
 
     <EntityLayout.Route path="/docs" title="Docs">
       {techdocsContent}
+    </EntityLayout.Route>
+
+    <EntityLayout.Route
+      path="/livebook"
+      title="Livebooks"
+      if={isLivebookAvailable}
+    >
+      <EntityLivebookContent />
     </EntityLayout.Route>
   </EntityLayout>
 );

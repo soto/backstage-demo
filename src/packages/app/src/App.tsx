@@ -21,6 +21,10 @@ import {
 import { TechDocsAddons } from '@backstage/plugin-techdocs-react';
 import { ReportIssue } from '@backstage/plugin-techdocs-module-addons-contrib';
 import { UserSettingsPage } from '@backstage/plugin-user-settings';
+import {
+  LivebookIndexPage,
+  LivebookReaderPage,
+} from '@internal/plugin-livebook';
 import { apis } from './apis';
 import { entityPage } from './components/catalog/EntityPage';
 import { searchPage } from './components/search/SearchPage';
@@ -93,6 +97,11 @@ const routes = (
     <Route path="/search" element={<SearchPage />}>
       {searchPage}
     </Route>
+    <Route path="/livebook" element={<LivebookIndexPage />} />
+    <Route
+      path="/livebook/:namespace/:kind/:name/*"
+      element={<LivebookReaderPage />}
+    />
     <Route path="/settings" element={<UserSettingsPage />} />
     <Route path="/catalog-graph" element={<CatalogGraphPage />} />
   </FlatRoutes>
