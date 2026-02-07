@@ -20,7 +20,6 @@
     "@backstage/core-app-api": "^1.14.2",
     "@backstage/core-components": "^0.14.10",
     "@backstage/core-plugin-api": "^1.9.3",
-    "@internal/plugin-livebook": "link:../../plugins/livebook",
     "@backstage/integration-react": "^1.1.30",
     "@backstage/plugin-api-docs": "^0.11.8",
     "@backstage/plugin-catalog": "^1.22.0",
@@ -39,6 +38,7 @@
     "@backstage/plugin-techdocs-react": "^1.2.7",
     "@backstage/plugin-user-settings": "^0.8.11",
     "@backstage/theme": "^0.5.6",
+    "@internal/plugin-livebook": "link:../../plugins/livebook",
     "@material-ui/core": "^4.12.2",
     "@material-ui/icons": "^4.9.1",
     "history": "^5.0.0",
@@ -51,10 +51,10 @@
   "devDependencies": {
     "@backstage/test-utils": "^1.5.10",
     "@playwright/test": "^1.32.3",
+    "@testing-library/dom": "^9.0.0",
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/react": "^14.0.0",
     "@testing-library/user-event": "^14.0.0",
-    "@testing-library/dom": "^9.0.0",
     "@types/react-dom": "*",
     "cross-env": "^7.0.0"
   },

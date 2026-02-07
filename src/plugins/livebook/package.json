@@ -8,7 +8,9 @@
   "backstage": {
     "role": "frontend-plugin",
     "pluginId": "livebook",
-    "pluginPackages": ["@internal/plugin-livebook"]
+    "pluginPackages": [
+      "@internal/plugin-livebook"
+    ]
   },
   "scripts": {
     "start": "backstage-cli package start",
@@ -41,5 +43,7 @@
     "@testing-library/jest-dom": "^6.0.0",
     "@testing-library/react": "^14.0.0"
   },
-  "files": ["dist"]
+  "files": [
+    "dist"
+  ]
 }
